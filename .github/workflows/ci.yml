@@ -1,21 +1,59 @@
 {
   "name": "ci",
+  # Build and test on every push and pull request; on main, publish to GitHub Pages the editor with this extension in it —
+  # the editor's own build (its site's editor.tgz), the extension added under extensions/contrib/ and listed in
+  # extensions.json — so https://<owner>.github.io/<repo>/ is the editor, Run starting this interpreter. Weekly too, to
+  # pick up the editor's changes. A fork needs nothing but Settings → Pages → Source: GitHub Actions.
   "on": {
+    "push": {
+      "branches": ["main"]
+    },
     "pull_request": {
       "branches": ["main"]
     },
-    "push": {
-      "branches": ["main"]
-    }
+    "schedule": [
+      { "cron": "0 6 * * 1" }
+    ],
+    "workflow_dispatch": null
   },
   "concurrency": {
     "group": "${{ github.workflow }}-${{ github.ref }}",
     "cancel-in-progress": "${{ github.event_name == 'pull_request' }}"
   },
+  "permissions": {
+    "contents": "read"
+  },
   "jobs": {
-    # The editor owns this workflow, so what a contribution is checked against moves with the editor.
     "build": {
-      "uses": "brianjenkins94/editor/.github/workflows/contrib-ci.yml@main"
+      "runs-on": "ubuntu-latest",
+      "steps": [
+        { "uses": "actions/checkout@v4" },
+        { "uses": "actions/setup-node@v4", "with": { "node-version": "lts/*" } },
+        { "run": "npm install" },
+        { "run": "npm run build" },
+        { "run": "npm run lint" },
+        { "run": "npm test" },
+        { "run": "mkdir -p _site/extensions/contrib\ncurl --fail --silent --show-error --location https://brianjenkins94.github.io/editor/editor.tgz | tar --extract --gzip --directory _site\ncp -R package.json dist _site/extensions/contrib/\necho '[\"extensions/contrib/\"]' > _site/extensions.json" },
+        { "uses": "actions/upload-pages-artifact@v3", "with": { "path": "_site" } }
+      ],
+      "timeout-minutes": 10
+    },
+    "deploy": {
+      "needs": "build",
+      "if": "${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}",
+      "runs-on": "ubuntu-latest",
+      "permissions": {
+        "pages": "write",
+        "id-token": "write"
+      },
+      "environment": {
+        "name": "github-pages",
+        "url": "${{ steps.deployment.outputs.page_url }}"
+      },
+      "steps": [
+        { "id": "deployment", "uses": "actions/deploy-pages@v4" }
+      ],
+      "timeout-minutes": 10
     }
   }
 }
